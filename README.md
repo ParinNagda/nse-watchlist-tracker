@@ -64,7 +64,7 @@ You can deploy this project for free on platforms like Render, Railway, or Koyeb
 2. In Render, create a new **Web Service** from this repo.
 3. Set:
    - **Build command**: `pip install -r requirements.txt`
-   - **Start command**: `gunicorn app:app`
+   - **Start command**: `gunicorn app:app --bind 0.0.0.0:$PORT`
 4. Add environment variable:
    - `DATABASE_URL` = your Postgres connection string (recommended)
 5. Deploy.
