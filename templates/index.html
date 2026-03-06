@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NSE Watchlist Tracker</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #17202a;
+      --muted: #6b7280;
+      --primary: #2563eb;
+      --danger: #b91c1c;
+      --success: #065f46;
+      --border: #dbe3ef;
+      --warn-bg: #fff7ed;
+      --warn-border: #fdba74;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      padding: 20px 0;
+    }
+
+    .card {
+      width: min(900px, 94vw);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.5rem;
+    }
+
+    p.subtitle {
+      margin: 0 0 16px;
+      color: var(--muted);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 10px;
+    }
+
+    input {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 0.95rem;
+    }
+
+    button {
+      border: none;
+      border-radius: 8px;
+      background: var(--primary);
+      color: white;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+
+    button.secondary {
+      background: #334155;
+    }
+
+    button.danger {
+      background: var(--danger);
+    }
+
+    button:disabled {
+      opacity: 0.7;
+      cursor: wait;
+    }
+
+    .status {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 8px;
+      display: none;
+      border: 1px solid transparent;
+    }
+
+    .status.error {
+      background: #fef2f2;
+      color: var(--danger);
+      border-color: #fecaca;
+    }
+
+    .status.success {
+      background: #ecfdf5;
+      color: var(--success);
+      border-color: #a7f3d0;
+    }
+
+    .toolbar {
+      margin-top: 14px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .toolbar-left {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+      font-size: 0.92rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .alert-row {
+      background: var(--warn-bg);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+
+    .badge.ok {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .badge.alert {
+      background: #ffedd5;
+      color: #9a3412;
+      border: 1px solid var(--warn-border);
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .error-text {
+      color: var(--danger);
+    }
+
+    .alerts-box {
+      margin-top: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fcfdff;
+    }
+
+    .alerts-title {
+      margin: 0 0 8px;
+      font-size: 0.92rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .alerts-list {
+      margin: 0;
+      padding-left: 18px;
+      max-height: 120px;
+      overflow: auto;
+      font-size: 0.88rem;
+    }
+
+    .summary-box {
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fcfdff;
+      font-size: 0.9rem;
+    }
+
+    .summary-title {
+      margin: 0 0 6px;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.88rem;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>NSE Watchlist Tracker</h1>
+    <p class="subtitle">Add stock symbol and your reference price. Alert triggers when movement is ±3%.</p>
+
+    <form id="watchForm" class="row">
+      <input id="symbol" type="text" placeholder="Script (e.g., RELIANCE)" required />
+      <input id="price" type="number" step="0.01" min="0.01" placeholder="Reference price" required />
+      <button id="addBtn" type="submit">Add to Watchlist</button>
+    </form>
+
+    <section id="status" class="status"></section>
+
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <button id="refreshBtn" class="secondary" type="button">Refresh Now</button>
+        <button id="enableNotifyBtn" class="secondary" type="button">Enable Notifications</button>
+        <button id="testNotifyBtn" class="secondary" type="button">Test Alert</button>
+      </div>
+      <span class="muted" id="lastRefresh">Last refresh: -</span>
+    </div>
+
+    <section class="summary-box">
+      <p class="summary-title">Range Summary (±3%)</p>
+      <div id="rangeSummary" class="muted">Checking watchlist...</div>
+    </section>
+
+    <section class="alerts-box">
+      <p class="alerts-title">Recent alerts</p>
+      <ul id="alertsList" class="alerts-list">
+        <li class="muted">No alerts yet.</li>
+      </ul>
+    </section>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Reference Price</th>
+          <th>Current Price</th>
+          <th>Move %</th>
+          <th>Status</th>
+          <th>Last Update</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="watchlistBody">
+        <tr>
+          <td colspan="7" class="muted">No stocks in watchlist yet.</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+
+  <script>
+    const watchForm = document.getElementById("watchForm");
+    const symbolInput = document.getElementById("symbol");
+    const priceInput = document.getElementById("price");
+    const addBtn = document.getElementById("addBtn");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const enableNotifyBtn = document.getElementById("enableNotifyBtn");
+    const testNotifyBtn = document.getElementById("testNotifyBtn");
+    const statusBox = document.getElementById("status");
+    const watchlistBody = document.getElementById("watchlistBody");
+    const lastRefresh = document.getElementById("lastRefresh");
+    const alertsList = document.getElementById("alertsList");
+    const rangeSummary = document.getElementById("rangeSummary");
+
+    const notifiedSymbols = new Set();
+    const recentAlerts = [];
+    let hasShownLoginSummary = false;
+
+    watchForm.addEventListener("submit", onAddWatch);
+    refreshBtn.addEventListener("click", refreshTrackedData);
+    enableNotifyBtn.addEventListener("click", requestNotificationPermission);
+    testNotifyBtn.addEventListener("click", sendTestNotification);
+
+    requestNotificationPermission();
+    init();
+
+    async function init() {
+      await refreshTrackedData();
+      setInterval(refreshTrackedData, 30000);
+    }
+
+    async function onAddWatch(event) {
+      event.preventDefault();
+      const symbol = symbolInput.value.trim().toUpperCase();
+      const price = priceInput.value.trim();
+
+      if (!symbol || !price) {
+        showStatus("Please provide both script and price.", true);
+        return;
+      }
+
+      addBtn.disabled = true;
+      addBtn.textContent = "Adding...";
+
+      try {
+        const response = await fetch("/api/watchlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol, price })
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          showStatus(data.error || "Unable to add stock.", true);
+          return;
+        }
+
+        symbolInput.value = "";
+        priceInput.value = "";
+        showStatus(`${data.item.symbol} added to watchlist.`, false);
+        await refreshTrackedData();
+      } catch (error) {
+        showStatus("Network error while adding stock.", true);
+      } finally {
+        addBtn.disabled = false;
+        addBtn.textContent = "Add to Watchlist";
+      }
+    }
+
+    async function refreshTrackedData() {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = "Refreshing...";
+
+      try {
+        const response = await fetch("/api/watchlist/check");
+        const data = await response.json();
+
+        if (!response.ok) {
+          showStatus(data.error || "Unable to load watchlist.", true);
+          return;
+        }
+
+        const items = data.items || [];
+        renderRows(items);
+        updateRangeSummary(items);
+        lastRefresh.textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
+
+        if (!hasShownLoginSummary) {
+          showLoginSummary(items);
+          hasShownLoginSummary = true;
+        }
+      } catch (error) {
+        showStatus("Network error while refreshing watchlist.", true);
+      } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = "Refresh Now";
+      }
+    }
+
+    function renderRows(items) {
+      if (!items.length) {
+        watchlistBody.innerHTML = '<tr><td colspan="7" class="muted">No stocks in watchlist yet.</td></tr>';
+        return;
+      }
+
+      watchlistBody.innerHTML = items.map((item) => {
+        if (item.error) {
+          return `
+            <tr>
+              <td>${item.symbol}</td>
+              <td>₹ ${item.targetPrice.toFixed(2)}</td>
+              <td colspan="3" class="error-text">${item.error}</td>
+              <td>-</td>
+              <td><button class="danger" onclick="removeWatch('${item.symbol}')">Remove</button></td>
+            </tr>
+          `;
+        }
+
+        const isAlert = item.alert;
+        const moveSign = item.movePercent >= 0 ? "+" : "";
+        const badgeClass = isAlert ? "badge alert" : "badge ok";
+        const badgeText = isAlert ? "ALERT ±3%" : "In Range";
+
+        if (isAlert) {
+          maybeNotify(item);
+        } else {
+          notifiedSymbols.delete(item.symbol);
+        }
+
+        return `
+          <tr class="${isAlert ? "alert-row" : ""}">
+            <td>${item.symbol}</td>
+            <td>₹ ${item.targetPrice.toFixed(2)}</td>
+            <td>₹ ${item.currentPrice.toFixed(2)}</td>
+            <td>${moveSign}${item.movePercent.toFixed(2)}%</td>
+            <td><span class="${badgeClass}">${badgeText}</span></td>
+            <td>${item.lastUpdate || "-"}</td>
+            <td><button class="danger" onclick="removeWatch('${item.symbol}')">Remove</button></td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    async function removeWatch(symbol) {
+      try {
+        const response = await fetch(`/api/watchlist/${encodeURIComponent(symbol)}`, {
+          method: "DELETE"
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          showStatus(data.error || "Unable to remove stock.", true);
+          return;
+        }
+
+        notifiedSymbols.delete(symbol);
+        showStatus(`${symbol} removed from watchlist.`, false);
+        await refreshTrackedData();
+      } catch (error) {
+        showStatus("Network error while removing stock.", true);
+      }
+    }
+
+    function showStatus(message, isError) {
+      statusBox.className = `status ${isError ? "error" : "success"}`;
+      statusBox.style.display = "block";
+      statusBox.textContent = message;
+    }
+
+    function requestNotificationPermission() {
+      if (!("Notification" in window)) {
+        return;
+      }
+      if (Notification.permission === "default") {
+        Notification.requestPermission().then((permission) => {
+          if (permission === "granted") {
+            showStatus("Browser notifications enabled.", false);
+          }
+        });
+        return;
+      }
+
+      if (Notification.permission === "granted") {
+        showStatus("Browser notifications are already enabled.", false);
+      } else {
+        showStatus("Browser notifications are blocked for this page.", true);
+      }
+    }
+
+    function maybeNotify(item) {
+      if (!("Notification" in window)) {
+        return;
+      }
+      if (Notification.permission !== "granted") {
+        return;
+      }
+      if (notifiedSymbols.has(item.symbol)) {
+        return;
+      }
+
+      const directionWord = item.movePercent >= 0 ? "up" : "down";
+      const message = `${item.symbol} moved ${Math.abs(item.movePercent).toFixed(2)}% ${directionWord}. Current: ₹ ${item.currentPrice.toFixed(2)}`;
+      new Notification("NSE Alert ±3%", { body: message });
+      addAlertEntry(`ALERT: ${message}`);
+      notifiedSymbols.add(item.symbol);
+    }
+
+    function sendTestNotification() {
+      if (!("Notification" in window)) {
+        showStatus("Notifications are not supported by this browser.", true);
+        return;
+      }
+
+      if (Notification.permission !== "granted") {
+        showStatus("Enable browser notifications first.", true);
+        return;
+      }
+
+      const testMessage = "This is a test alert from NSE Watchlist Tracker.";
+      new Notification("NSE Alert Test", { body: testMessage });
+      addAlertEntry(`TEST: ${testMessage}`);
+      showStatus("Test notification sent.", false);
+    }
+
+    function addAlertEntry(message) {
+      const timestamp = new Date().toLocaleTimeString();
+      recentAlerts.unshift(`${timestamp} - ${message}`);
+      if (recentAlerts.length > 10) {
+        recentAlerts.pop();
+      }
+
+      alertsList.innerHTML = recentAlerts.map((entry) => `<li>${entry}</li>`).join("");
+    }
+
+    function updateRangeSummary(items) {
+      if (!items.length) {
+        rangeSummary.className = "muted";
+        rangeSummary.textContent = "No stocks in watchlist.";
+        return;
+      }
+
+      const healthyItems = items.filter((item) => !item.error);
+      const inRangeItems = healthyItems.filter((item) => !item.alert);
+      const symbols = inRangeItems.map((item) => item.symbol);
+
+      if (!healthyItems.length) {
+        rangeSummary.className = "error-text";
+        rangeSummary.textContent = "Unable to evaluate range. All stocks have fetch errors.";
+        return;
+      }
+
+      if (!inRangeItems.length) {
+        rangeSummary.className = "error-text";
+        rangeSummary.textContent = `0/${healthyItems.length} stocks are in range now.`;
+        return;
+      }
+
+      rangeSummary.className = "";
+      rangeSummary.textContent = `${inRangeItems.length}/${healthyItems.length} in range: ${symbols.join(", ")}`;
+    }
+
+    function showLoginSummary(items) {
+      const healthyItems = items.filter((item) => !item.error);
+      const inRangeItems = healthyItems.filter((item) => !item.alert);
+
+      if (!items.length) {
+        showStatus("Watchlist is empty. Add stocks to start tracking.", false);
+        return;
+      }
+
+      if (!healthyItems.length) {
+        showStatus("Could not evaluate watchlist right now. Please refresh again.", true);
+        return;
+      }
+
+      if (!inRangeItems.length) {
+        showStatus("No stocks are in-range right now (±3%).", true);
+        return;
+      }
+
+      const symbols = inRangeItems.map((item) => item.symbol).join(", ");
+      showStatus(`In-range stocks now: ${symbols}`, false);
+    }
+  </script>
+</body>
+</html>
