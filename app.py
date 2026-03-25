@@ -1,9 +1,12 @@
 import os
+from urllib.parse import quote_plus
 
 from flask import Flask, jsonify, render_template, request
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 load_dotenv()
 
@@ -28,6 +31,51 @@ db = SQLAlchemy(app)
 NSE_BASE = "https://www.nseindia.com"
 NSE_QUOTE_API = f"{NSE_BASE}/api/quote-equity"
 
+_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+_NSE_TIMEOUT = 20
+
+
+def _create_nse_session() -> requests.Session:
+    session = requests.Session()
+    retry = Retry(
+        total=2,
+        connect=2,
+        read=2,
+        backoff_factor=0.8,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=frozenset(["GET"]),
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+NSE_SESSION = _create_nse_session()
+
+
+def _nse_headers(symbol: str, wants_json: bool = False) -> dict:
+    encoded_symbol = quote_plus(symbol)
+    return {
+        "User-Agent": _USER_AGENT,
+        "Accept": "application/json,text/plain,*/*" if wants_json else "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": f"{NSE_BASE}/get-quotes/equity?symbol={encoded_symbol}",
+        "Origin": NSE_BASE,
+        "Connection": "keep-alive",
+        "DNT": "1",
+    }
+
+
+def _prime_nse_session(symbol: str) -> None:
+    encoded_symbol = quote_plus(symbol)
+    NSE_SESSION.get(NSE_BASE, headers=_nse_headers(symbol), timeout=_NSE_TIMEOUT)
+    NSE_SESSION.get(
+        f"{NSE_BASE}/get-quotes/equity?symbol={encoded_symbol}",
+        headers=_nse_headers(symbol),
+        timeout=_NSE_TIMEOUT,
+    )
+
 
 class WatchlistItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -49,25 +97,27 @@ def parse_price(value) -> float:
 
 
 def fetch_nse_quote(symbol: str) -> dict:
-    session = requests.Session()
-    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol:
+        raise ValueError("Stock symbol is required.")
 
-    session.get(
-        NSE_BASE,
-        headers={"User-Agent": user_agent, "Accept": "text/html"},
-        timeout=15,
-    )
-
-    response = session.get(
+    _prime_nse_session(clean_symbol)
+    response = NSE_SESSION.get(
         NSE_QUOTE_API,
-        params={"symbol": symbol},
-        headers={
-            "User-Agent": user_agent,
-            "Accept": "application/json,text/plain,*/*",
-            "Referer": f"{NSE_BASE}/get-quotes/equity?symbol={symbol}",
-        },
-        timeout=15,
+        params={"symbol": clean_symbol},
+        headers=_nse_headers(clean_symbol, wants_json=True),
+        timeout=_NSE_TIMEOUT,
     )
+
+    if response.status_code in (401, 403):
+        _prime_nse_session(clean_symbol)
+        response = NSE_SESSION.get(
+            NSE_QUOTE_API,
+            params={"symbol": clean_symbol},
+            headers=_nse_headers(clean_symbol, wants_json=True),
+            timeout=_NSE_TIMEOUT,
+        )
+
     response.raise_for_status()
     return response.json()
 
@@ -189,11 +239,14 @@ def check_watchlist():
                 }
             )
         except Exception as exc:
+            error_text = str(exc)
+            if "403" in error_text or "401" in error_text:
+                error_text = "NSE blocked this request from the hosting network. Try again later or run locally."
             tracked.append(
                 {
                     "symbol": symbol,
                     "targetPrice": target_price,
-                    "error": f"Unable to fetch latest price: {str(exc)}",
+                    "error": f"Unable to fetch latest price: {error_text}",
                 }
             )
 
