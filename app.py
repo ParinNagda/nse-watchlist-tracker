@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from urllib.parse import quote_plus
 
 from flask import Flask, jsonify, render_template, request
@@ -30,6 +31,7 @@ db = SQLAlchemy(app)
 
 NSE_BASE = "https://www.nseindia.com"
 NSE_QUOTE_API = f"{NSE_BASE}/api/quote-equity"
+YAHOO_QUOTE_API = "https://query1.finance.yahoo.com/v7/finance/quote"
 
 _USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 _NSE_TIMEOUT = 20
@@ -122,6 +124,81 @@ def fetch_nse_quote(symbol: str) -> dict:
     return response.json()
 
 
+def _format_epoch(value) -> str:
+    if value is None:
+        return "N/A"
+    try:
+        return datetime.fromtimestamp(int(value)).strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, OSError, TypeError):
+        return "N/A"
+
+
+def fetch_yahoo_quote(symbol: str) -> dict:
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol:
+        raise ValueError("Stock symbol is required.")
+
+    candidates = [f"{clean_symbol}.NS", f"{clean_symbol}.BO", clean_symbol]
+    headers = {
+        "User-Agent": _USER_AGENT,
+        "Accept": "application/json,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    for ticker in candidates:
+        response = requests.get(
+            YAHOO_QUOTE_API,
+            params={"symbols": ticker},
+            headers=headers,
+            timeout=15,
+        )
+        response.raise_for_status()
+
+        payload = response.json()
+        results = (payload.get("quoteResponse") or {}).get("result") or []
+        if not results:
+            continue
+
+        quote = results[0]
+        last_price = quote.get("regularMarketPrice")
+        close_price = quote.get("regularMarketPreviousClose")
+
+        if last_price is None and close_price is None:
+            continue
+
+        return {
+            "source": "YAHOO",
+            "symbol": clean_symbol,
+            "close": close_price,
+            "lastPrice": last_price if last_price is not None else close_price,
+            "lastUpdate": _format_epoch(quote.get("regularMarketTime")),
+        }
+
+    raise ValueError(f"Stock symbol '{clean_symbol}' was not found in fallback quote source.")
+
+
+def fetch_quote_data(symbol: str) -> dict:
+    try:
+        payload = fetch_nse_quote(symbol)
+        price_info = payload.get("priceInfo") or {}
+        close_value = price_info.get("close")
+        last_value = price_info.get("lastPrice")
+        return {
+            "source": "NSE",
+            "symbol": symbol.strip().upper(),
+            "close": close_value,
+            "lastPrice": last_value if last_value is not None else close_value,
+            "lastUpdate": payload.get("metadata", {}).get("lastUpdateTime", "N/A"),
+        }
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        if status_code in (401, 403, 429, 500, 502, 503, 504):
+            return fetch_yahoo_quote(symbol)
+        raise
+    except requests.RequestException:
+        return fetch_yahoo_quote(symbol)
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -135,21 +212,18 @@ def get_close():
         return jsonify({"error": "Please provide a stock symbol."}), 400
 
     try:
-        payload = fetch_nse_quote(symbol)
-        price_info = payload.get("priceInfo") or {}
-
-        close_value = price_info.get("close")
+        quote_data = fetch_quote_data(symbol)
+        close_value = quote_data.get("close")
         if close_value is None:
             return jsonify({"error": f"Close price not available for '{symbol}'."}), 404
-
-        last_update = payload.get("metadata", {}).get("lastUpdateTime", "N/A")
 
         response = {
             "inputSymbol": symbol,
             "ticker": symbol,
             "close": round(float(close_value), 2),
-            "date": last_update,
+            "date": quote_data.get("lastUpdate", "N/A"),
             "isToday": True,
+            "source": quote_data.get("source", "NSE"),
         }
 
         return jsonify(response)
@@ -158,6 +232,8 @@ def get_close():
         if status_code == 404:
             return jsonify({"error": f"Stock symbol '{symbol}' was not found on NSE."}), 404
         return jsonify({"error": "NSE data service is unavailable. Please try again shortly."}), 502
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 404
     except Exception as exc:
         return jsonify({"error": f"Failed to fetch data: {str(exc)}"}), 500
 
@@ -219,8 +295,8 @@ def check_watchlist():
             continue
 
         try:
-            payload = fetch_nse_quote(symbol)
-            current = payload.get("priceInfo", {}).get("lastPrice")
+            quote_data = fetch_quote_data(symbol)
+            current = quote_data.get("lastPrice")
             if current is None:
                 raise ValueError("Current price unavailable")
 
@@ -235,7 +311,8 @@ def check_watchlist():
                     "movePercent": move_percent,
                     "alert": is_alert,
                     "direction": "up" if move_percent >= 0 else "down",
-                    "lastUpdate": payload.get("metadata", {}).get("lastUpdateTime", "N/A"),
+                    "lastUpdate": quote_data.get("lastUpdate", "N/A"),
+                    "source": quote_data.get("source", "NSE"),
                 }
             )
         except Exception as exc:
