@@ -67,6 +67,8 @@ You can deploy this project for free on platforms like Render, Railway, or Koyeb
    - **Start command**: `gunicorn app:app --bind 0.0.0.0:$PORT`
 4. Add environment variable:
    - `DATABASE_URL` = your Postgres connection string (recommended)
+   - `QUOTE_PROVIDER` = `AUTO` (default, tries `NSE` then `YAHOO` then `GOOGLE`)
+     - Use `YAHOO` or `GOOGLE` to force a specific provider on Render if needed
 5. Deploy.
 
 ### Important for Live Use

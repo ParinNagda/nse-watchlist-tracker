@@ -250,7 +250,7 @@
           <th>Current Price</th>
           <th>Move %</th>
           <th>Status</th>
-          <th>Last Update</th>
+          <th>Added On</th>
           <th>Action</th>
         </tr>
       </thead>
@@ -374,7 +374,7 @@
               <td>${item.symbol}</td>
               <td>₹ ${item.targetPrice.toFixed(2)}</td>
               <td colspan="3" class="error-text">${item.error}</td>
-              <td>-</td>
+              <td>${item.addedAt || "-"}</td>
               <td><button class="danger" onclick="removeWatch('${item.symbol}')">Remove</button></td>
             </tr>
           `;
@@ -398,7 +398,7 @@
             <td>₹ ${item.currentPrice.toFixed(2)}</td>
             <td>${moveSign}${item.movePercent.toFixed(2)}%</td>
             <td><span class="${badgeClass}">${badgeText}</span></td>
-            <td>${item.lastUpdate || "-"}</td>
+            <td>${item.addedAt || "-"}</td>
             <td><button class="danger" onclick="removeWatch('${item.symbol}')">Remove</button></td>
           </tr>
         `;
